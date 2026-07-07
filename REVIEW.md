@@ -5,21 +5,21 @@ A skeptic's pass over the claims, and why each survives.
 ## "Everyone knows keep-alive pins to one backend - this is documented behavior."
 That a connection pins is known; that the *fleet-level coverage* of K persistent
 connections obeys the occupancy law `N*(1-(1-1/N)^K)` and therefore starves
-replicas even when clients outnumber replicas (3.6 of 4 covered at K=8) is a
+replicas even when clients outnumber replicas (3.5 of 4 covered at K=8) is a
 quantified, measured law, not folklore. "Keep-alive pins" is a fact about one
 connection; "coverage collides so you cannot balance by adding clients" is a fact
 about the system, and it is the actionable one.
 
 ## "N=4 replicas and 30 trials is tiny."
 The load-bearing result is a distributional fit to a closed-form law, and the fit
-is within 5% at every K with the K=8 point landing exactly on 3.60. The occupancy
+is within 7% at every K. The occupancy
 law is parameter-free (no fitting), so agreement across four K values is a strong
-test, not a small-sample coincidence. The baseline (200 requests, Gini 0.08)
+test, not a small-sample coincidence. The baseline (200 requests, Gini 0.11)
 establishes that the balancer itself is fair.
 
 ## "Maybe kube-proxy is just biased and keep-alive is incidental."
 The baseline rules that out: with fresh connections the same 4 replicas receive
-near-equal load (Gini 0.08, full coverage). The only variable changed between the
+near-equal load (Gini 0.11, full coverage). The only variable changed between the
 fair and skewed conditions is connection reuse. If kube-proxy were biased, the
 new-connection baseline would be skewed too; it is not.
 
@@ -33,7 +33,7 @@ connection hitting one pod) is the documented conntrack behavior, confirmed here
 ## "The occupancy law assumes uniform independent assignment - is that valid?"
 It is the null model for kube-proxy's `statistic mode random` rules, and the data
 confirm it: if assignment were non-uniform or correlated, the measured coverage
-would deviate from `N*(1-(1-1/N)^K)`, but it matches within 5%. The agreement is
+would deviate from `N*(1-(1-1/N)^K)`, but it matches within 7%. The agreement is
 itself evidence that each connection is an independent uniform draw, which is the
 mechanism claimed.
 

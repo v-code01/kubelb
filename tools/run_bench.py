@@ -34,11 +34,12 @@ def exec_curl(shell: str) -> list[str]:
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
-def keepalive_conn() -> str:
-    """One persistent connection issuing M requests; returns its pinned pod."""
+def keepalive_conn() -> list[str]:
+    """One persistent connection issuing M requests; returns the pod for each
+    request (all identical if conntrack pins the connection - measured, not
+    assumed)."""
     urls = " ".join([SVC] * M)
-    pods = exec_curl(f"curl -s -w '\\n' {urls}")
-    return pods[0] if pods else ""
+    return exec_curl(f"curl -s -w '\\n' {urls}")
 
 
 def main() -> int:
@@ -56,11 +57,12 @@ def main() -> int:
     rows.append({"mode": "newconn", "pods": base})
     print(f"  baseline: {len(base)} requests, {len(set(base))} distinct pods")
 
-    # keep-alive K-sweep
+    # keep-alive K-sweep; conns[i] is the list of M pods that connection i's
+    # requests hit (all equal if the connection is pinned - measured).
     for k in KS:
         for t in range(TRIALS):
-            conn_pods = [keepalive_conn() for _ in range(k)]
-            rows.append({"mode": "keepalive", "K": k, "trial": t, "conn_pods": conn_pods})
+            conns = [keepalive_conn() for _ in range(k)]
+            rows.append({"mode": "keepalive", "K": k, "trial": t, "conns": conns})
         print(f"  keepalive K={k}: {TRIALS} trials done")
 
     out = ROOT / "results" / "hits.jsonl"

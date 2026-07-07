@@ -3,7 +3,7 @@
 
 [project]
 name = "kubelb"
-summary = "How a Kubernetes Service's L4 (iptables/kube-proxy) load balancing skews across backend replicas when clients hold HTTP keep-alive connections, measured on a real single-node cluster (minikube) with N=4 hostname-reporting pods behind a ClusterIP Service. New connections balance fairly (Gini 0.08, all 4 replicas hit), but each keep-alive connection is pinned by conntrack to one backend, so one connection sends 100% of its requests to one replica (coverage 1/4, Gini 0.75). The number of replicas covered by K independent connections follows the classic occupancy law N*(1-(1-1/N)^K) - measured 1.00/1.70/2.60/3.60 vs predicted 1.00/1.75/2.73/3.60 for K=1/2/4/8 (within 5%) - and stays below N even at K=8 (twice the replica count: 3.6 of 4 covered, ~0.4 replicas still starved, Gini 0.28). Persistent-connection clients (as every inference SDK uses) therefore starve replicas under L4 Service balancing, which is why per-request (L7) balancing is needed."
+summary = "How a Kubernetes Service's L4 (iptables/kube-proxy) load balancing skews across backend replicas when clients hold HTTP keep-alive connections, measured on a real single-node cluster (minikube) with N=4 hostname-reporting pods behind a ClusterIP Service. New connections balance fairly (Gini 0.11, all 4 replicas hit), but each keep-alive connection is pinned by conntrack to one backend, so one connection sends 100% of its requests to one replica (coverage 1/4, Gini 0.75). The number of replicas covered by K independent connections follows the classic occupancy law N*(1-(1-1/N)^K) - measured 1.00/1.70/2.90/3.47 vs predicted 1.00/1.75/2.73/3.60 for K=1/2/4/8 (within 7%), with every connection's requests pinned to one pod (measured pinning rate 100%, 450/450) - and stays below N even at K=8 (twice the replica count: 3.5 of 4 covered, ~0.5 replicas still starved, Gini 0.32). Persistent-connection clients (as every inference SDK uses) therefore starve replicas under L4 Service balancing, which is why per-request (L7) balancing is needed."
 language = "Python"
 license = "MIT"
 oracles = "each request is attributed to a backend by the pod name it returns (agnhost serve-hostname); all counts are exact. The occupancy law N*(1-(1-1/N)^K) is a closed form compared to the measured mean coverage. results/hits.jsonl records each connection's pinned replica over 30 trials per K. tools/verify.py recomputes the Gini, coverage, starvation, and occupancy fit with its own arithmetic, sharing no code with src or analyze.py. No LLM judge."
@@ -16,25 +16,25 @@ status = "verified"
 
 [[claim]]
 id = "new-connections-fair"
-statement = "With a fresh connection per request, 200 requests spread across all 4 replicas with a Gini of 0.08 - kube-proxy randomizes per connection as designed."
+statement = "With a fresh connection per request, 200 requests spread across all 4 replicas with a Gini of 0.11 - kube-proxy randomizes per connection as designed."
 evidence = "bench_results/frontier.md newconn line; tools/verify.py asserts baseline Gini < 0.15 and coverage = N."
 status = "verified"
 
 [[claim]]
 id = "keepalive-pins-to-one"
-statement = "A single keep-alive connection sends 100% of its requests to one replica: coverage 1 of 4, Gini 0.75 (the maximum for 4 backends), the other 3 replicas idle."
-evidence = "bench_results/frontier.md keepalive K 1 line (mean_coverage 1.0, mean_starved 3.0, mean_gini 0.75); tools/verify.py asserts K=1 mean coverage == 1."
+statement = "Every one of the 450 keep-alive connections sent all its requests to one replica (measured pinning rate 100%); a single connection has coverage 1 of 4, Gini 0.75 (the maximum for 4 backends), the other 3 replicas idle."
+evidence = "bench_results/frontier.md keepalive K 1 line (mean_coverage 1.0, mean_starved 3.0, mean_gini 0.75) and the pinning line (rate 1.0); tools/verify.py asserts K=1 mean coverage == 1."
 status = "verified"
 
 [[claim]]
 id = "occupancy-law-and-starvation"
-statement = "The replicas covered by K independent connections follow the occupancy law N*(1-(1-1/N)^K): measured 1.00/1.70/2.60/3.60 vs predicted 1.00/1.75/2.73/3.60 for K=1/2/4/8 (within 5%). Coverage stays below N even at K=8 - twice the replica count still leaves ~0.4 replicas idle on average and a Gini of 0.28 - so adding clients does not fix L4 starvation; the collisions scale with you."
+statement = "The replicas covered by K independent connections follow the occupancy law N*(1-(1-1/N)^K): measured 1.00/1.70/2.90/3.47 vs predicted 1.00/1.75/2.73/3.60 for K=1/2/4/8 (within 7%). Coverage stays below N even at K=8 - twice the replica count still leaves ~0.5 replicas idle on average and a Gini of 0.32 - so adding clients does not fix L4 starvation; the collisions scale with you."
 evidence = "bench_results/frontier.md keepalive coverage vs occupancy_expected lines; tools/verify.py asserts the fit is within 25% at every K and coverage < N throughout."
 status = "verified"
 
 [[claim]]
 id = "skew-is-pinning"
-statement = "At matched request volume, the only difference between the fair 0.08 Gini and the skewed 0.28-0.75 Gini is whether the connection was reused. kube-proxy is not imbalanced; persistent connections defeat per-connection randomization."
+statement = "At matched request volume, the only difference between the fair 0.11 Gini and the skewed 0.32-0.75 Gini is whether the connection was reused. kube-proxy is not imbalanced; persistent connections defeat per-connection randomization."
 evidence = "bench_results/frontier.md newconn vs keepalive gini; tools/verify.py asserts keep-alive Gini far exceeds the baseline."
 status = "verified"
 

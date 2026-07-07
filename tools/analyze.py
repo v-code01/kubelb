@@ -30,6 +30,11 @@ def as_pods(x: object) -> list[str]:
     return [_s(p) for p in x]
 
 
+def as_conns(x: object) -> list[object]:
+    assert isinstance(x, list)
+    return list(x)
+
+
 def main() -> int:
     rows = load()
     base = as_pods(next(r["pods"] for r in rows if r["mode"] == "newconn"))
@@ -53,14 +58,22 @@ def main() -> int:
     lines.append(f"newconn requests {len(base)} coverage {kb.coverage(base)}/{n} "
                  f"gini {kb.gini(base_counts):.4f}")
 
+    # intra-connection pinning: fraction of connections whose M requests all hit
+    # one pod (measured, not assumed).
+    conns_all = [as_pods(c) for r in rows if r["mode"] == "keepalive"
+                 for c in as_conns(r["conns"])]
+    pinned = sum(1 for c in conns_all if len(set(c)) == 1)
+    lines.append(f"pinning connections {len(conns_all)} all_same_pod {pinned} "
+                 f"rate {pinned/len(conns_all):.4f}")
+
     for k in KS:
         trials = [r for r in rows if r["mode"] == "keepalive" and r["K"] == k]
         covs, ginis, starves = [], [], []
         for r in trials:
-            cp = as_pods(r["conn_pods"])
-            c = Counter(cp)
+            reps = [as_pods(c)[0] for c in as_conns(r["conns"])]  # each conn's pinned pod
+            c = Counter(reps)
             counts = [c[p] for p in replicas]
-            covs.append(kb.coverage(cp))
+            covs.append(kb.coverage(reps))
             ginis.append(kb.gini(counts))
             starves.append(kb.starved(counts))
         t = len(trials)

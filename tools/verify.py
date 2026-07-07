@@ -4,7 +4,8 @@ per-K keep-alive coverage / Gini / starvation and the occupancy-law fit with its
 own arithmetic, and re-asserts:
 
   P1  new connections are fair: baseline Gini < 0.15 and coverage = N.
-  P2  one keep-alive connection pins to one pod: K=1 mean coverage == 1.
+  P2  one keep-alive connection pins to one pod: every connection's M requests all
+      hit a single pod (measured pinning rate == 1), so K=1 coverage == 1.
   P3  coverage follows the occupancy law N*(1-(1-1/N)^K) within 25% and stays
       below N for K up to 8.
   P4  the skew is connection pinning: keep-alive Gini far exceeds the baseline.
@@ -48,20 +49,25 @@ def main() -> int:
     print(f"  [P1] baseline gini {base_gini:.3f} (<0.15), coverage {base_cov}/{n} = {p1}")
     ok = ok and p1
 
+    # measured intra-connection pinning across every connection
+    conns_all = [c for r in rows if r["mode"] == "keepalive" for c in r["conns"]]
+    pin_rate = sum(1 for c in conns_all if len(set(c)) == 1) / len(conns_all)
+
     cov: dict[int, float] = {}
     gin: dict[int, float] = {}
     for k in KS:
         trials = [r for r in rows if r["mode"] == "keepalive" and r["K"] == k]
-        covs = [len(set(r["conn_pods"])) for r in trials]
+        covs = [len({c[0] for c in r["conns"]}) for r in trials]
         ginis = []
         for r in trials:
-            c = Counter(r["conn_pods"])
-            ginis.append(gini([c[p] for p in replicas]))
+            counts = Counter(c[0] for c in r["conns"])
+            ginis.append(gini([counts[p] for p in replicas]))
         cov[k] = sum(covs) / len(covs)
         gin[k] = sum(ginis) / len(ginis)
 
-    p2 = cov[1] == 1.0
-    print(f"  [P2] K=1 mean coverage {cov[1]:.3f} == 1 = {p2}")
+    p2 = pin_rate == 1.0 and cov[1] == 1.0
+    print(f"  [P2] measured pinning rate {pin_rate:.3f} == 1 and K=1 coverage "
+          f"{cov[1]:.3f} == 1 = {p2}")
     ok = ok and p2
 
     dev = {k: abs(cov[k] - occ(n, k)) / occ(n, k) for k in KS}
@@ -80,10 +86,11 @@ def main() -> int:
     ok = ok and p4
 
     if ok:
-        print("VERIFY OK: new connections balance fairly (gini 0.08, full coverage) but each "
-              "keep-alive connection pins to one replica; coverage of K connections follows the "
-              "occupancy law N*(1-(1-1/N)^K) and stays below N even at K=8 (2x replicas), so "
-              "persistent-connection clients starve replicas - recomputed independently.")
+        print("VERIFY OK: new connections balance fairly (gini ~0.1, full coverage) but every "
+              "keep-alive connection pins all its requests to one replica (measured pinning rate "
+              "1.0); coverage of K connections follows the occupancy law N*(1-(1-1/N)^K) and stays "
+              "below N even at K=8 (2x replicas), so persistent-connection clients starve replicas "
+              "- recomputed independently.")
         return 0
     print("VERIFY FAILED", file=sys.stderr)
     return 1
